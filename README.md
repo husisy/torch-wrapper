@@ -27,3 +27,9 @@ python draft00.py
 # Rosenbrock function
 # Beale function
 ```
+
+unittest
+
+```bash
+pytest
+```

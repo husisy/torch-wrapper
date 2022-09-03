@@ -15,6 +15,12 @@ def get_model_flat_parameter(model):
     return ret
 
 
+def get_model_flat_grad(model):
+    tmp0 = _get_sorted_parameter(model)
+    ret = np.concatenate([x.grad.detach().cpu().numpy().reshape(-1) for x in tmp0])
+    return ret
+
+
 def set_model_flat_parameter(model, theta, index01=None):
     theta = torch.tensor(theta)
     parameter_sorted = _get_sorted_parameter(model)
@@ -71,3 +77,35 @@ def hf_callback_wrapper(hf_fval, state:dict=None, print_freq:int=1):
             state['time_history'].append(t1-t0)
         state['step'] += 1
     return hf0
+
+
+def check_model_gradient(model, tol=1e-5, zero_eps=1e-4, seed=None):
+    np_rng = np.random.default_rng(seed)
+    num_parameter = get_model_flat_parameter(model).size
+    # TODO range for paramter
+    theta0 = np_rng.uniform(0, 2*np.pi, size=num_parameter)
+
+    set_model_flat_parameter(model, theta0)
+    loss = model()
+    for x in model.parameters():
+        if x.grad is not None:
+            x.grad.zero_()
+    if hasattr(model, 'grad_backward'):
+        model.grad_backward(loss)
+    else:
+        loss.backward()
+    ret0 = get_model_flat_grad(model)
+
+    def hf0(theta):
+        set_model_flat_parameter(model, theta)
+        ret = model()
+        if hasattr(ret, 'item'):
+            ret = ret.item()
+        return ret
+    ret_ = np.zeros(num_parameter, dtype=np.float64)
+    for ind0 in range(ret_.shape[0]):
+        tmp0,tmp1 = [theta0.copy() for _ in range(2)]
+        tmp0[ind0] += zero_eps
+        tmp1[ind0] -= zero_eps
+        ret_[ind0] = (hf0(tmp0)-hf0(tmp1))/(2*zero_eps)
+    assert np.abs(ret_-ret0).max()<tol

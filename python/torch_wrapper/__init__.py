@@ -49,7 +49,8 @@ def hf_model_wrapper(model):
                 model.grad_backward(loss)
             else:
                 loss.backward() #if no .grad_backward() method, it should be a normal torch.nn.Module
-            grad = np.concatenate([x.grad.detach().cpu().numpy().reshape(-1) for x in parameter_sorted])
+            # scipy.optimize.LBFGS does not support float32 @20221118
+            grad = np.concatenate([x.grad.detach().cpu().numpy().reshape(-1).astype(theta.dtype) for x in parameter_sorted])
         else:
             with torch.no_grad():
                 loss = model()

@@ -1,6 +1,7 @@
 import time
 import torch
 import numpy as np
+import scipy.optimize
 
 
 def _get_sorted_parameter(model):
@@ -110,3 +111,32 @@ def check_model_gradient(model, tol=1e-5, zero_eps=1e-4, seed=None):
         tmp1[ind0] -= zero_eps
         ret_[ind0] = (hf0(tmp0)-hf0(tmp1))/(2*zero_eps)
     assert np.abs(ret_-ret0).max()<tol
+
+
+def minimize(model, rand_kind=None, num_repeat=3, tol=1e-7, print_freq=-1, method='L-BFGS-B', seed=None):
+    np_rng = np.random.default_rng(seed)
+    if rand_kind is None:
+        rand_kind = ('uniform', -1, 1)
+    if isinstance(rand_kind, str):
+        if rand_kind=='uniform':
+            rand_kind = ('uniform', -1, 1)
+        elif rand_kind=='normal':
+            rand_kind = ('normal', 0, 1)
+    if rand_kind[0]=='uniform':
+        hf_theta = lambda *x: np_rng.uniform(rand_kind[0], rand_kind[1], size=x)
+    elif rand_kind[0]=='normal':
+        hf_theta = lambda *x: np_rng.normal(rand_kind[0], rand_kind[1], size=x)
+    num_parameter = len(get_model_flat_parameter(model))
+    hf_model = hf_model_wrapper(model)
+    ret = []
+    min_fun = None
+    for ind0 in range(num_repeat):
+        theta0 = hf_theta(num_parameter)
+        hf_callback = hf_callback_wrapper(hf_model, print_freq=print_freq)
+        theta_optim = scipy.optimize.minimize(hf_model, theta0, jac=True, method=method, tol=tol, callback=hf_callback)
+        ret.append(theta_optim)
+        min_fun = theta_optim.fun if min_fun is None else min(min_fun, theta_optim.fun)
+        print(ind0, theta_optim.fun, min_fun)
+    ret = min(ret, key=lambda x: x.fun)
+    set_model_flat_parameter(model, ret.x)
+    return ret

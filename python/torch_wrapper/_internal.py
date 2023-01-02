@@ -116,7 +116,8 @@ def check_model_gradient(model, tol=1e-5, zero_eps=1e-4, seed=None):
     assert np.abs(ret_-ret0).max()<tol
 
 
-def minimize(model, rand_kind=None, num_repeat=3, tol=1e-7, print_freq=-1, method='L-BFGS-B', print_step_info=True, seed=None):
+def minimize(model, rand_kind=None, num_repeat=3, tol=1e-7, print_freq=-1,
+            method='L-BFGS-B', print_step_info=True, maxiter=None, seed=None):
     np_rng = np.random.default_rng(seed)
     if rand_kind is None:
         rand_kind = ('uniform', -1, 1)
@@ -133,14 +134,15 @@ def minimize(model, rand_kind=None, num_repeat=3, tol=1e-7, print_freq=-1, metho
     hf_model = hf_model_wrapper(model)
     ret = []
     min_fun = None
+    options = dict() if maxiter is None else {'maxiter':maxiter}
     for ind0 in range(num_repeat):
         theta0 = hf_theta(num_parameter)
         hf_callback = hf_callback_wrapper(hf_model, print_freq=print_freq)
-        theta_optim = scipy.optimize.minimize(hf_model, theta0, jac=True, method=method, tol=tol, callback=hf_callback)
+        theta_optim = scipy.optimize.minimize(hf_model, theta0, jac=True, method=method, tol=tol, callback=hf_callback, options=options)
         ret.append(theta_optim)
         min_fun = theta_optim.fun if min_fun is None else min(min_fun, theta_optim.fun)
         if print_step_info:
-            print(f'[step={ind0}] min(f)={min_fun}, current(f)={theta_optim.fun}')
+            print(f'[round={ind0}] min(f)={min_fun}, current(f)={theta_optim.fun}')
     ret = min(ret, key=lambda x: x.fun)
     set_model_flat_parameter(model, ret.x)
     return ret

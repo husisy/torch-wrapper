@@ -6,6 +6,7 @@ import torch_wrapper
 
 np_rng = np.random.default_rng()
 
+# or use torch_wrapper.minimize(model) for convenience
 def hf_demo(model, print_freq=10, history_info=None):
     hf_model = torch_wrapper.hf_model_wrapper(model)
     hf_callback = torch_wrapper.hf_callback_wrapper(hf_model, history_info, print_freq=print_freq)
@@ -75,20 +76,20 @@ class Beale(torch.nn.Module):
 
 
 model = Rosenbrock(num_parameter=10)
-hf_demo(model)
+theta_optim = torch_wrapper.minimize(model, num_repeat=1, tol=1e-10, print_freq=20)
 # [1. 1. 1. 1. 1. 1. 1. 1. 1. 1.] 3.959370430722476e-21
 
 
 model = Rastrigin(num_parameter=10)
-hf_demo(model)
+theta_optim = torch_wrapper.minimize(model, num_repeat=1, tol=1e-10, print_freq=20)
 # almost impossible to find the global minimum
 
 
 model = Ackley()
-hf_demo(model)
+theta_optim = torch_wrapper.minimize(model, num_repeat=1, tol=1e-10, print_freq=20)
 # [0,0] 0
 
 
 model = Beale()
-hf_demo(model)
+theta_optim = torch_wrapper.minimize(model, num_repeat=1, tol=1e-10, print_freq=20)
 # [3, 0.5] 0

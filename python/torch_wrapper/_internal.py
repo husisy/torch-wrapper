@@ -8,7 +8,7 @@ except ImportError:
     torch = None
 
 def _get_sorted_parameter(model):
-    tmp0 = sorted(list(model.named_parameters()), key=lambda x:x[0]) #sorted by name
+    tmp0 = sorted([(k,v) for k,v in model.named_parameters() if v.requires_grad], key=lambda x:x[0])
     ret = [x[1] for x in tmp0]
     return ret
 

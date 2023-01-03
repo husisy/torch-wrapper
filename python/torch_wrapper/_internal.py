@@ -180,3 +180,25 @@ def minimize_adam(model, num_step, theta0='no-init', optim_args=('adam',0.01), s
             if use_tqdm and (ind0%tqdm_update_freq==0):
                 pbar.set_postfix(loss=f'{loss.item():.12f}')
     return loss.item()
+
+
+def _hf_zero_grad(parameter_list):
+    for x in parameter_list:
+        if x.grad is not None:
+            x.grad.zero_()
+
+def get_model_hessian(model):
+    parameter_sorted = _get_sorted_parameter(model)
+    _hf_zero_grad(parameter_sorted)
+    loss = model()
+    grad_list = torch.autograd.grad(loss, parameter_sorted, create_graph=True)
+    ret = []
+    for grad_i in grad_list:
+        shape = tuple(grad_i.shape)
+        for ind0 in range(grad_i.numel()):
+            ind0a = np.unravel_index(ind0, shape)
+            grad_i[ind0a].backward(retain_graph=True)
+            ret.append(np.concatenate([x.grad.detach().reshape(-1).numpy() for x in parameter_sorted]))
+            _hf_zero_grad(parameter_sorted)
+    ret = np.stack(ret)
+    return ret

@@ -1,6 +1,8 @@
 import time
+import contextlib
 import numpy as np
 import scipy.optimize
+from tqdm import tqdm
 
 try:
     import torch
@@ -116,20 +118,29 @@ def check_model_gradient(model, tol=1e-5, zero_eps=1e-4, seed=None):
     assert np.abs(ret_-ret0).max()<tol
 
 
-def minimize(model, rand_kind=None, num_repeat=3, tol=1e-7, print_freq=-1,
+def _get_hf_theta(np_rng, key=None):
+    if key is None:
+        key = ('uniform', -1, 1)
+    if isinstance(key, str):
+        if key=='uniform':
+            key = ('uniform', -1, 1)
+        elif key=='normal':
+            key = ('normal', 0, 1)
+    if isinstance(key, np.ndarray):
+        hf_theta = lambda *x: key
+    elif key[0]=='uniform':
+        hf_theta = lambda *x: np_rng.uniform(key[1], key[2], size=x)
+    elif key[0]=='normal':
+        hf_theta = lambda *x: np_rng.normal(key[1], key[2], size=x)
+    else:
+        assert False, f'un-recognized key "{key}"'
+    return hf_theta
+
+
+def minimize(model, theta0=None, num_repeat=3, tol=1e-7, print_freq=-1,
             method='L-BFGS-B', print_step_info=True, maxiter=None, seed=None):
     np_rng = np.random.default_rng(seed)
-    if rand_kind is None:
-        rand_kind = ('uniform', -1, 1)
-    if isinstance(rand_kind, str):
-        if rand_kind=='uniform':
-            rand_kind = ('uniform', -1, 1)
-        elif rand_kind=='normal':
-            rand_kind = ('normal', 0, 1)
-    if rand_kind[0]=='uniform':
-        hf_theta = lambda *x: np_rng.uniform(rand_kind[1], rand_kind[2], size=x)
-    elif rand_kind[0]=='normal':
-        hf_theta = lambda *x: np_rng.normal(rand_kind[1], rand_kind[2], size=x)
+    hf_theta = _get_hf_theta(np_rng, theta0)
     num_parameter = len(get_model_flat_parameter(model))
     hf_model = hf_model_wrapper(model)
     ret = []
@@ -146,3 +157,26 @@ def minimize(model, rand_kind=None, num_repeat=3, tol=1e-7, print_freq=-1,
     ret = min(ret, key=lambda x: x.fun)
     set_model_flat_parameter(model, ret.x)
     return ret
+
+
+def minimize_adam(model, num_step, theta0='no-init', optim_args=('adam',0.01), seed=None, tqdm_update_freq=20, use_tqdm=True):
+    assert optim_args[0] in {'sgd', 'adam'}
+    np_rng = np.random.default_rng(seed)
+    num_parameter = len(get_model_flat_parameter(model))
+    if theta0!='no-init':
+        theta0 = _get_hf_theta(np_rng, theta0)(num_parameter)
+        set_model_flat_parameter(model, theta0)
+    if optim_args[0]=='sgd':
+        optimizer = torch.optim.SGD(model.parameters(), lr=optim_args[1])
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), lr=optim_args[1])
+    tmp0 = tqdm(range(num_step)) if use_tqdm else contextlib.nullcontext(range(num_step))
+    with tmp0 as pbar:
+        for ind0 in pbar:
+            optimizer.zero_grad()
+            loss = model()
+            loss.backward()
+            optimizer.step()
+            if use_tqdm and (ind0%tqdm_update_freq==0):
+                pbar.set_postfix(loss=f'{loss.item():.12f}')
+    return loss.item()

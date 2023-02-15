@@ -58,6 +58,7 @@ def hf_model_wrapper(model):
             # scipy.optimize.LBFGS does not support float32 @20221118
             grad = np.concatenate([x.grad.detach().cpu().numpy().reshape(-1).astype(theta.dtype) for x in parameter_sorted])
         else:
+            # TODO, if tag_grad=False, maybe we should return fval only, not (fval,None)
             with torch.no_grad():
                 loss = model()
             grad = None
@@ -128,34 +129,43 @@ def _get_hf_theta(np_rng, key=None):
             key = ('normal', 0, 1)
     if isinstance(key, np.ndarray):
         hf_theta = lambda *x: key
-    elif key[0]=='uniform':
-        hf_theta = lambda *x: np_rng.uniform(key[1], key[2], size=x)
-    elif key[0]=='normal':
-        hf_theta = lambda *x: np_rng.normal(key[1], key[2], size=x)
+    elif hasattr(key, '__len__') and (len(key)>0) and isinstance(key[0], str):
+        if key[0]=='uniform':
+            hf_theta = lambda *x: np_rng.uniform(key[1], key[2], size=x)
+        elif key[0]=='normal':
+            hf_theta = lambda *x: np_rng.normal(key[1], key[2], size=x)
+        else:
+            assert False, f'un-recognized key "{key}"'
+    elif callable(key):
+        hf_theta = lambda size: key(size, np_rng)
     else:
         assert False, f'un-recognized key "{key}"'
     return hf_theta
 
 
-def minimize(model, theta0=None, num_repeat=3, tol=1e-7, print_freq=-1,
-            method='L-BFGS-B', print_step_info=True, maxiter=None, seed=None):
+def minimize(model, theta0=None, num_repeat=3, tol=1e-7, print_freq=-1, method='L-BFGS-B',
+            print_every_round=1, maxiter=None, early_stop_threshold=None, return_all_result=False, seed=None):
     np_rng = np.random.default_rng(seed)
     hf_theta = _get_hf_theta(np_rng, theta0)
     num_parameter = len(get_model_flat_parameter(model))
     hf_model = hf_model_wrapper(model)
-    ret = []
-    min_fun = None
+    theta_optim_list = []
+    theta_optim_best = None
     options = dict() if maxiter is None else {'maxiter':maxiter}
     for ind0 in range(num_repeat):
         theta0 = hf_theta(num_parameter)
         hf_callback = hf_callback_wrapper(hf_model, print_freq=print_freq)
         theta_optim = scipy.optimize.minimize(hf_model, theta0, jac=True, method=method, tol=tol, callback=hf_callback, options=options)
-        ret.append(theta_optim)
-        min_fun = theta_optim.fun if min_fun is None else min(min_fun, theta_optim.fun)
-        if print_step_info:
-            print(f'[round={ind0}] min(f)={min_fun}, current(f)={theta_optim.fun}')
-    ret = min(ret, key=lambda x: x.fun)
-    set_model_flat_parameter(model, ret.x)
+        if return_all_result:
+            theta_optim_list.append(theta_optim)
+        if (theta_optim_best is None) or (theta_optim.fun<theta_optim_best.fun):
+            theta_optim_best = theta_optim
+        if (print_every_round>0) and (ind0%print_every_round==0):
+            print(f'[round={ind0}] min(f)={theta_optim_best.fun}, current(f)={theta_optim.fun}')
+        if (early_stop_threshold is not None) and (theta_optim_best.fun<=early_stop_threshold):
+            break
+    set_model_flat_parameter(model, theta_optim_best.x)
+    ret = (theta_optim_best,theta_optim_list) if return_all_result else theta_optim_best
     return ret
 
 
